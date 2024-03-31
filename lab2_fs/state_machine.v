@@ -14,7 +14,15 @@ module state_machine(
     input wire rst,
     input wire [15:0] A,
     input wire [15:0] B,
-    output reg [31:0] out
+    output reg [31:0] out,
+    // Debug
+    output wire [31:0] add1_out_d,
+    output wire [31:0] add2_out_d,
+    output wire [15:0] div_in_d,
+    output wire [31:0] div_out_d,
+    output wire [15:0] mul_in_d,
+    output wire [31:0] mul_out_d,
+    output wire [2:0] state_d
 );
 
 // State tracking
@@ -85,13 +93,13 @@ div2_16to32 div_inst(
 reg ready;
 
 // States enumeration
-parameter S_IDLE = 4'b0000;
-parameter S_ADD_A_B_DIV_MUL = 4'b0001;
-parameter S_ADD_DIV_MUL = 4'b0010;
-parameter S_ADD_B = 4'b0011;
-parameter S_DIV = 4'b0100;
-parameter S_ADD_RESULT = 4'b0101;
-parameter S_FINISH = 4'b1001;
+parameter S_IDLE = 3'b000;
+parameter S_ADD_A_B_DIV_MUL = 3'b001;
+parameter S_ADD_DIV_MUL = 3'b010;
+parameter S_ADD_B = 3'b011;
+parameter S_DIV = 3'b100;
+parameter S_ADD_RESULT = 3'b0101;
+parameter S_FINISH = 3'b110;
 
 // DO IN 5 STATES
 // State should trigger not process logic, but control signal
@@ -112,66 +120,69 @@ always @(posedge clk) begin
         add2_r <= 0;
         mul_in <= 0;
         div_in <= 0;
-    end else case(state)
-        S_IDLE: begin
-            ready <= 0;
-        end
-        S_ADD_A_B_DIV_MUL: begin
-            // Perform A + B
-            add1_l <= A;
-            add1_r <= B;
-            allow_count_add_1 <= 1;
-            // Perform B/2
-            div_in <= B;
-            allow_count_div <= 1;
-            // Perform A*4
-            mul_in <= A;
-            allow_count_mul <= 1;
-        end
-        S_ADD_DIV_MUL: begin
-            // Reset allows to stop counting
-            allow_count_add_1 <= 0;
-            allow_count_div <= 0;
-            // Perform (B/2 + A*4)
-            // Result isn this counter will be saved throughout
-            add2_l <= div_res;
-            add2_r <= mul_res;
-            allow_count_add_2 <= 1;
-            // Perform (A + B)*4
-            mul_in <= add1_res;
-            // allow_count_mul <= 1; Remains from state
-        end
-        S_ADD_B: begin
-            // Reset allows
-            allow_count_add_2 <= 0;
-            allow_count_mul <= 0;
-            // Perform (A + B)*4 + B
-            add1_l <= mul_res;
-            add1_r <= B;
-            allow_count_add_1 <= 1;
-        end
-        S_DIV: begin
-            // Reset allows
-            allow_count_add_1 <= 0;
-            // Perform ((A + B)*4 + B)/2
-            div_in <= add1_res;
-            allow_count_div <= 1;
-        end
-        S_ADD_RESULT: begin
-            // Reset allows
-            allow_count_div <= 0;
-            // Perform ((A + B)*4 + B)/2 + (B/2 + A*4)
-            add1_l <= add1_res;
-            add1_r <= div_res;
-            allow_count_add_1 <= 1;
-        end
-        S_FINISH: begin
-            // Finish calculations
-            allow_count_add_1 <= 0;
-            out <= add1_res;
-            ready <= 1;
-        end
-    endcase
+    end else begin
+        case(state)
+            S_IDLE: begin
+                ready <= 0;
+            end
+            S_ADD_A_B_DIV_MUL: begin
+                // Perform A + B
+                add1_l <= A;
+                add1_r <= B;
+                allow_count_add_1 <= 1;
+                // Perform B/2
+                div_in <= B;
+                allow_count_div <= 1;
+                // Perform A*4
+                mul_in <= A;
+                allow_count_mul <= 1;
+            end
+            S_ADD_DIV_MUL: begin
+                // Reset allows to stop counting
+                allow_count_add_1 <= 0;
+                allow_count_div <= 0;
+                // Perform (B/2 + A*4)
+                // Result isn this counter will be saved throughout
+                add2_l <= div_res;
+                add2_r <= mul_res;
+                allow_count_add_2 <= 1;
+                // Perform (A + B)*4
+                mul_in <= add1_res;
+                // allow_count_mul <= 1; Remains from state
+            end
+            S_ADD_B: begin
+                // Reset allows
+                allow_count_add_2 <= 0;
+                allow_count_mul <= 0;
+                // Perform (A + B)*4 + B
+                add1_l <= mul_res;
+                add1_r <= B;
+                allow_count_add_1 <= 1;
+            end
+            S_DIV: begin
+                // Reset allows
+                allow_count_add_1 <= 0;
+                // Perform ((A + B)*4 + B)/2
+                div_in <= add1_res;
+                allow_count_div <= 1;
+            end
+            S_ADD_RESULT: begin
+                // Reset allows
+                allow_count_div <= 0;
+                // Perform ((A + B)*4 + B)/2 + (B/2 + A*4)
+                add1_l <= add2_res;
+                add1_r <= div_res;
+                allow_count_add_1 <= 1;
+            end
+            S_FINISH: begin
+                // Finish calculations
+                allow_count_add_1 <= 0;
+                out <= add1_res;
+                ready <= 1;
+            end
+        endcase
+        state <= next_state;
+    end
 end
 
 always @(state)
@@ -180,8 +191,18 @@ always @(state)
         S_ADD_A_B_DIV_MUL: next_state <= S_ADD_DIV_MUL;
         S_ADD_DIV_MUL: next_state <= S_ADD_B;
         S_ADD_B: next_state <= S_DIV;
-        S_DIV: next_state <= 
+        S_DIV: next_state <= S_ADD_RESULT;
+        S_ADD_RESULT: next_state <= S_FINISH;
+        S_FINISH: next_state <= S_IDLE;
         default: next_state <= S_IDLE;
 endcase
+
+assign add1_out_d = add1_res;
+assign add2_out_d = add2_res;
+assign div_in_d = div_in;
+assign div_out_d = div_res;
+assign mul_in_d = mul_in;
+assign mul_out_d = mul_res;
+assign state_d = state;
 
 endmodule
