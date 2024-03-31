@@ -16,7 +16,8 @@ module div2_16to32(
 );
 
 reg [31:0] result;
-assign new_result = {17'b0, in[14:0]};
+wire [31:0] new_result;
+assign new_result = {17'b0, in[15:1]};
 
 always @(posedge count) begin
     result <= new_result;
